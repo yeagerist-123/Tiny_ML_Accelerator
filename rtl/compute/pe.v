@@ -27,4 +27,5 @@ module pe #(
             psum_out <= psum_in + (act_in * weight_reg);
         end
     end
+
 endmodule
