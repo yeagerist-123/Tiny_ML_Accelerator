@@ -22,6 +22,7 @@
     *   [Layer Fusion Optimization](#3-layer-fusion-optimization)
     *   [Power-Aware Scheduling](#4-power-aware-scheduling)
     *   [5. Multi-Layer Pipeline Acceleration](#5-multi-layer-pipeline-acceleration)
+9.  [ 🏁 Conclusion & Next Steps](#-conclusion--next-steps)
     
 
 
@@ -552,3 +553,23 @@ This roadmap details the precise architectural engineering steps required to tra
 * **Total Power:** **27.5 mW**
 * **Silicon Area:** **44,988.15 µm²**
 * **Timing Slack:** **+0.84 ns (MET)** at 91 MHz
+
+## 🏁 Conclusion & Next Steps
+
+The current results confirm that the **ConvNet Core** is logically robust and hits the target power-delay-area (PDA) metrics for the Sky130 node. Having achieved **Logic Synthesis Sign-off**, the core serves as a high-performance foundation for further Edge-AI optimization.
+
+### 🚀 The Path to Production-Grade Silicon
+Rather than proceeding directly to tape-out, the next phase of development will focus on integrating the advanced features outlined in our **Roadmap** to transform this into a high-throughput **SoC-ready IP**:
+
+1.  **AXI4 Bus Integration (Top Priority):**
+    * **Master Interface:** Replacing the basic strobe-based control with a formal **AXI4-Full Master** interface to enable high-speed DMA transfers.
+    * **Burst-Mode Support:** Utilizing `ARLEN` and `AWLEN` to fetch 16-byte activation/weight rows in a single burst, effectively "hiding" memory latency and doubling PE utilization.
+    * **Standardization:** Ensuring compatibility with standard SoC interconnects (e.g., ARM AMBA or RISC-V Rocket Chip).
+
+2.  **Architectural Expansion:** * Implementing **MobileNet Support** via PE reconfiguration.
+    * Integrating **Layer Fusion** (ReLU/Pooling) directly into the datapath to eliminate intermediate SRAM "Store/Load" power cycles.
+
+3.  **Physical Design (PD) Readiness:** * Once the **AXI4-enabled RTL** is verified, we will transition to the **OpenROAD flow**.
+    * This involves Floorplanning, CTS (Clock Tree Synthesis), and Routing to generate the final GDSII and achieve **Post-Layout Sign-off**.
+
+By completing these roadmap milestones, the ConvNet Core will evolve from a functional logic block into a fully optimized, deployment-ready **Edge-AI SoC IP**.
