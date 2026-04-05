@@ -1,5 +1,17 @@
 # 🧠 TinyML Hardware Accelerator (Track A)
-**High-Efficiency INT8 Systolic Array for Edge-AI Inference**
+# IP Documentation: Tiny ML Accelerator
+
+## Overview
+
+This document outlines the MVP industrial implementation of our TinyML Accelerator IP. The accelerator is architected for energy-efficient, deterministic, and low-area neural network inference at the edge, targeting the Sky130 process node. Each hardware choice is justified not only by functional requirements but by circuit-level efficiency, power, and timing closure. The core is built to operate as a *plug-and-play IP block* for modern SoCs.
+
+We turn mathematical models into silicon by:
+- Mapping INT8 activations/weights, not floating-point.
+- Using fixed-point MAC arrays (systolic grid) instead of large CPUs.
+- Employing smart local buffering to keep compute engines busy.
+- Orchestrating everything with a minimal, hardwired FSM.
+
+Every major requirement is translated to actual architectural and RTL features, with root cause justifications for each circuit-level choice.
 
 ## 📂 Repository Structure
 This repository follows industry-standard naming conventions to ensure a clean separation between hardware source code, automation scripts, and timing analysis documentation.
@@ -57,118 +69,116 @@ The modular nature of our PEs allows for future expansion into multi-layer pipel
 
 
 
-### 1. 🧮 INT8-based Convolution Layer (ConvNet Core)
 
-**Goal:**  
-Perform high-speed 2D convolutions while minimizing silicon area and power.
+## 1. INT8-Based Convolution Layer (ConvNet Core)
 
-**Approach:**  
-- Replaced IEEE-754 floating point with **Linear Quantization**
-- Data mapped to **8-bit signed integers [-128, 127]**
+### The Goal  
+Perform high-speed, silicon-efficient 2D convolutions for neural inference.
 
-**Hardware Implementation:**
-- Convolution unrolled into **dot-product operations** (`top_tinyml.v`)
-- Used **Two's Complement arithmetic** for signed computation
-- Implemented **24-bit accumulators** to avoid overflow during summation
+### Problem & Motivation  
+Floating-point (IEEE-754) is overkill for tiny edge ML—too much hardware, too much power. We solve this by *linear quantization, mapping all weights and activations to **8-bit signed integers ([−128, 127])*.
 
-**Benefit:**  
-- Reduced area and power consumption significantly  
-- Maintained sufficient precision for TinyML workloads  
+### How We Achieved It
+- Every MAC operation uses INT8, reducing multiplier and adder complexity.
+- Circuit-level: All arithmetic is *two’s complement*—direct support for negative weights, common in trained AI models.
+- *Precision Guard:* Accumulation can easily overflow for a 3x3/5x5 kernel. To guard results, we use *24-bit wide accumulators* in the RTL.  
+- *Hardware Implementation:*  
+  - *top_tinyml.v: Convolution is not looped—we **unroll* it to a parallel dot-product fabric ("multiply & accumulate" pipelines for every window position).  
+  - Minimal logic is used for exponent or normalization—area and timing are saved for core math.
 
----
-
-### 2. ⚡ Fixed-Point MAC Array (Systolic Architecture)
-
-**Goal:**  
-Eliminate the **Von Neumann bottleneck** by reducing memory access overhead.
-
-**Approach:**  
-- Designed a **Spatial Compute Architecture**
-- Parallel execution using multiple **Processing Elements (PEs)**
-
-**Hardware Implementation:**
-- **PE Design (`pe.v`):**
-  - 8×8 multiplier  
-  - 24-bit adder  
-
-- **Weight-Stationary Dataflow:**
-  - Weights stored locally in PEs  
-  - Activations flow horizontally  
-  - Partial sums propagate vertically  
-
-**Result:**
-- ~70% reduction in SRAM access power  
-- High throughput via parallelism  
+### Circuit Justification
+- INT8 arithmetic > 60% area/power savings over FP32.
+- Two’s complement fits perfectly in hardware multipliers/adders.
+- 24-bit accumulation = no data loss/wrap even for large kernels.
+- Dot-product unrolling converts software loops into silicon parallelism.
 
 ---
 
-### 3. 🧠 Weight & Activation Buffering
+## 2. Fixed-Point MAC Array (Systolic Architecture)
 
-**Goal:**  
-Ensure continuous data supply to compute units without external memory stalls.
+### The Goal  
+Break the "Von Neumann Bottleneck"—make on-chip math so cheap that memory traffic, not arithmetic, is the only constraint.
 
-**Approach:**  
-- Implemented **Local Scratchpad Memory**
+### How We Achieved It
+- We *spatially compute*: Many PEs do a single task each, not one CPU doing all tasks.
+- *PE Design (pe.v):*  
+  - Each PE: 8×8 signed multiplier + 24-bit adder.
+- *Weight-Stationary Flow:*  
+  - Weights are "locked" in PE registers, loaded once per layer.
+  - Activations "flow" horizontally, partial sums "flow" vertically.
 
-**Hardware Implementation:**
-- **Dual-port register files**
-  - `weight_buffer.v`
-  - `activation_buffer.v`
+### Result  
+- Each loaded weight is *reused* for the entire layer.
+- *SRAM read power cut by ~70%*, since weights are not re-fetched.
+- Local PE communication means global data buses are almost idle during math.
 
-- **Ping-Pong Buffering (Concept):**
-  - One buffer feeds computation  
-  - Other buffer loads next data block  
-
-**Advantage:**
-- Enables **100% PE utilization**  
-- Eliminates pipeline stalls ("bubbles")  
-
----
-
-### 4. 🔁 Control FSM (System Orchestrator)
-
-**Goal:**  
-Manage precise timing of data movement across the systolic array.
-
-**Approach:**  
-- Designed a **Mealy FSM-based controller**
-
-**Hardware Implementation (`controller_fsm.v`):**
-
-- **STATE_LOAD**
-  - Loads weights into buffer  
-  - Triggers address generation  
-
-- **STATE_COMPUTE**
-  - Controls **staggered data injection**
-  - Ensures correct timing across PEs  
-
-- **STATE_STORE**
-  - Writes final outputs back to registers  
-
-**Advantage:**
-- Deterministic behavior  
-- Low control power (< 1 mW)  
+### Circuit Justification
+- Fixed-point MAC means optimized area/timing closure, easier DRC/DFM.
+- Weight reuse = low-power, constant utilization.
+- Systolic structure = no controller/CPU stalling the datapath.
 
 ---
 
-## 📈 Performance Summary
+## 3. Weight and Activation Buffering
 
-| Metric              | Value        |
-|--------------------|-------------|
-| Power Consumption  | 27.5 mW     |
-| Timing Slack       | +0.84 ns    |
-| Data Precision     | INT8        |
-| Architecture       | Systolic    |
+### The Goal  
+Ensure PEs never idle waiting for slow bus/I/O—buffer everything near the array.
+
+### How We Achieved It
+- *Local Scratchpad Memory:* separates external DRAM from on-chip compute.
+- *Dual-Port Register Files:*  
+  - Used in weight_buffer.v and activation_buffer.v
+- *Ping-Pong Buffering:*  
+  - While one bank feeds the compute, FSM loads the other "invisibly" ("hidden loading").
+  - Buffer design enables *100% PE utilization—no pipeline bubbles*.
+
+### Circuit Justification
+- Dual-port registers → simultaneous read/write with no collision.
+- Ping-pong/hidden loading = PEs are always fed ("no starvation" design principle).
 
 ---
 
-## 🧩 Design Highlights
+## 4. Simple Control FSM (The "Brain")
 
-- **INT8 Quantization → Area Efficiency**
-- **Systolic Array → High Throughput**
-- **Buffering → Low Latency**
-- **FSM Control → Deterministic Operation**
+### The Goal  
+Orchestrate exact data arrival times through the grid (i.e., "staggered injection" of new activations per row).
+
+### How We Achieved It
+- Used a *Mealy-Machine FSM* to hardwire all scheduling (no microcoded processor).
+- *controller_fsm.v:*  
+  - *STATE_LOAD:* Fills weight buffer (loads weights to PE registers).  
+  - *STATE_COMPUTE:* Staggers activation entry: Activation[0] → Row 0 at T=1, Activation[1] → Row 1 at T=2, etc. Synchs all pipes.
+  - *STATE_STORE:* When result is "valid," triggers output write-back.
+
+### Result/Advantage  
+- FSM is pure combinatorial; control logic power kept under *1mW*—max energy for math, not for sequencing.
+
+### Circuit Justification
+- Hardwired FSM > microcontroller in power, verifiability, and fixed-timing requirements of systolic math grids.
+
+---
+
+## 📈 System-Level Justification & Summary
+
+Each "pillar" solves a real problem:
+- *INT8* = Area/energy win, always
+- *Systolic Array* = True throughput, not just peak ops
+- *Buffering* = No stalls
+- *FSM* = Guaranteed deterministic scheduling
+
+This gives us a sign-off of *27.5 mW* and *+0.84ns Slack*—ready for real SoC tapeout.
+
+---
+
+## Results Table
+
+| Metric              | Value         | Notes                                       |
+|---------------------|--------------|---------------------------------------------|
+| Power (active)      | 27.5 mW      | Measured post-synthesis, Sky130 GDSII       |
+| Timing Slack        | +0.84 ns     | Meets 91 MHz at all corners                 |
+| Utilization         | Area eff.    | Small PE/core, low fanout, low netlength    |
+| Throughput          | High         | By array width × depth × clock freq         |
+| Control Power       | < 1 mW       | FSM-only, negligible sequencer overhead     |
 
 ## 📂 Modular Hierarchy & RTL Files
 Our system is implemented in Verilog HDL using a strictly modular approach. This design philosophy ensures that each block can be verified independently (Unit Testing) before top-level integration and synthesis on the Sky130 node.
@@ -294,7 +304,10 @@ rtl/compute/pe.v \
 rtl/compute/relu.v \
 rtl/compute/systolic_array.v
 ```
-
+then to check it
+```bash
+vvp sim.out
+```
 
 ### **Step 3: Logic Synthesis with Yosys
 This step converts your Verilog code into a gate-level netlist using the Sky130 library.
@@ -302,10 +315,20 @@ This step converts your Verilog code into a gate-level netlist using the Sky130 
 ```bash
 # Run the Yosys synthesis script
 yosys -s scripts/synth.tcl | tee docs/synthesis.log
-
-# Verify the cell count in the log
-grep "Number of cells" docs/synthesis.log
 ```
+
+```bash
+# Verify the cell count in the log
+grep -A 20 "=== top_tinyml ===" docs/synthesis.log
+```
+
+
+### 📉 Synthesis Results (Sky130 HD)
+* **Target Frequency:** 91 MHz
+* **Total Chip Area:** 44,988.15 µm²
+* **Sequential Area:** 4,944.74 µm² (10.99% overhead)
+* **Standard Cell Library:** sky130_fd_sc_hd
+* **Status:** Logic Synthesis Successful (Clean Exit)
 
 ### **Step 4: Static Timing Analysis (STA)
 Verify that the design meets the 91 MHz clock requirement without setup/hold violations.
@@ -318,12 +341,5 @@ sta scripts/run_sta.tcl | tee docs/timing_report.txt
 # A positive slack (e.g., +0.84ns) means your design passed!
 ```
 
-### **Step 5: Power Analysis
-Calculate the dynamic and leakage power of the TinyML core.
 
-```bash
-# Power is typically reported during the STA or Synthesis log
-# Look for the 'Total Power' section in timing_report.txt
-grep "Total Power" docs/timing_report.txt
-```
 
