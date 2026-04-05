@@ -61,6 +61,8 @@ This repository follows industry-standard naming conventions to ensure a clean s
 │   └── run_sta.tcl             # OpenSTA Script: Calculates Timing and Power.
 ├── constraints/
 │   └── sky130.sdc              # Timing Constraints: Defines 91MHz clock & IO delays.
+├── sim/
+│   └── tb_top.v                # test bench for the top module.
 └── docs/                       # Project Evidence (Proofs)
     ├── synthesis.log           # Full log of the gate-level mapping process.
     └── timing_report.txt       # Confirms Timing (MET) and Power.
@@ -390,6 +392,9 @@ grep -A 20 "=== top_tinyml ===" docs/synthesis.log
 
 <img width="1298" height="713" alt="cell count" src="https://github.com/user-attachments/assets/7d96b427-01e1-4d1e-af4a-79dc211313ae" />
 
+the netlist only for top_tinyml module
+
+<img width="1462" height="713" alt="VirtualBox_opensource_05_04_2026_19_56_20" src="https://github.com/user-attachments/assets/d87d5a64-fcb9-48fe-be39-da3a8a5b6e46" />
 
 ### 📉 Synthesis Results (Sky130 HD)
 * **Target Frequency:** 91 MHz
